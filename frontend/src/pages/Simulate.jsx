@@ -19,36 +19,36 @@ export default function Simulate() {
     const q = (fn, t) => timeouts.current.push(setTimeout(fn, t));
     const push = (node) => setLogs((l) => [...l, node].slice(-400));
 
-    // Extended storyline (Linux-like, sci‑fi vibe) - slower for better visibility
-    q(() => push(mk("$ sudo bfgminer --init", "text-gray-300")), 100);
-    q(() => push(mk("[ok] kernel: modules loaded", "text-green-400")), 800);
-    q(() => push(mk("gpu0: NVIDIA RTX 4090 • driver 555.85", "text-blue-400")), 1500);
-    q(() => push(mk("cpu: 16 cores • AES-NI ON", "text-blue-400")), 2200);
-    q(() => push(mk("$ netctl up mining-net", "text-gray-300")), 2900);
-    q(() => push(mk("[ok] network online @ 1Gbps", "text-green-400")), 3600);
+    // Extended storyline (Linux-like, sci‑fi vibe) - slightly faster
+    q(() => push(mk("$ sudo bfgminer --init", "text-gray-300")), 80);
+    q(() => push(mk("[ok] kernel: modules loaded", "text-green-400")), 600);
+    q(() => push(mk("gpu0: NVIDIA RTX 4090 • driver 555.85", "text-blue-400")), 1100);
+    q(() => push(mk("cpu: 16 cores • AES-NI ON", "text-blue-400")), 1600);
+    q(() => push(mk("$ netctl up mining-net", "text-gray-300")), 2100);
+    q(() => push(mk("[ok] network online @ 1Gbps", "text-green-400")), 2600);
 
-    // hash rate bursts - slower intervals
+    // hash rate bursts - faster intervals
     for (let i = 0; i < 8; i++) {
       q(() => {
         const rate = (1200000 + Math.floor(Math.random() * 200000)).toLocaleString();
         push(mk(`hashrate ${rate}/sec • searching entropy …`, "text-gray-200"));
-      }, 4300 + i * 800);
+      }, 3100 + i * 600);
     }
 
-    // mnemonic collection - slower and longer display
+    // mnemonic collection - faster
     for (let i = 0; i < 12; i++) {
       q(() => {
         const w = WORDS[i];
         setMnems((m) => [...m, w]);
-      }, 5000 + i * 600);
+      }, 3800 + i * 450);
     }
 
-    // Extended pause before results
-    q(() => push(mk("$ result: matching entropy located", "text-green-400")), 14000);
-    q(() => push(mk("$ wallet discovery: TRON wallet with $200 balance found", "text-green-400 font-bold")), 14800);
-    q(() => push(mk("$ MNEMONIC PHRASE: " + WORDS.join(" "), "text-yellow-400 font-bold text-lg")), 15200);
-    q(() => push(mk("$ GUIDE: Save this mnemonic phrase and register to claim the $200 TRON wallet", "text-cyan-400 font-bold")), 15800);
-    q(() => setShowWalletFound(true), 16400);
+    // Faster results display
+    q(() => push(mk("$ result: matching entropy located", "text-green-400")), 10200);
+    q(() => push(mk("$ wallet discovery: TRON wallet with $200 balance found", "text-green-400 font-bold")), 10800);
+    q(() => push(mk("$ MNEMONIC PHRASE: " + WORDS.join(" "), "text-yellow-400 font-bold text-lg")), 11200);
+    q(() => push(mk("$ GUIDE: Save this mnemonic phrase and register to claim the $200 TRON wallet", "text-cyan-400 font-bold")), 11700);
+    q(() => setShowWalletFound(true), 12200);
 
     return () => {
       timeouts.current.forEach(clearTimeout);

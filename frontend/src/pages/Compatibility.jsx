@@ -37,10 +37,27 @@ export default function Compatibility() {
   const runSystemCheck = () => {
     const ua = navigator.userAgent;
     const isChrome = /Chrome\//.test(ua) && !/Edge\//.test(ua);
-    const memory = navigator.deviceMemory || "8";
+    const isFirefox = /Firefox\//.test(ua);
+    const isSafari = /Safari\//.test(ua) && !/Chrome\//.test(ua);
+    const isEdge = /Edge\/|Edg\//.test(ua);
+    
+    let browserName = "Other";
+    if (isChrome) browserName = "Chrome";
+    else if (isFirefox) browserName = "Firefox";
+    else if (isSafari) browserName = "Safari";
+    else if (isEdge) browserName = "Edge";
+    
+    const memory = navigator.deviceMemory || "Unknown";
+    const platform = navigator.platform || "Unknown";
+    const cores = navigator.hardwareConcurrency || "Unknown";
+    
+    const isSupported = isChrome || isFirefox;
+    const status = isSupported ? "FULLY SUPPORTED" : "PARTIALLY SUPPORTED";
+    
     toast({
-      title: "System Check (mock)",
-      description: `Browser: ${isChrome ? "Chrome" : "Other"} • RAM: ${memory}GB • Status: ${isChrome ? "FULL" : "PARTIAL"}`,
+      title: `System Check: ${status}`,
+      description: `Browser: ${browserName} • Platform: ${platform} • RAM: ${memory}GB • CPU Cores: ${cores}`,
+      variant: isSupported ? "default" : "destructive"
     });
   };
 
@@ -158,7 +175,7 @@ export default function Compatibility() {
             </div>
           </div>
           <div className="text-center mt-8">
-            <button onClick={() => toast({ title: "Downloading...", description: "Client download started (mock)" })} className="bg-orange-500 text-black px-8 py-3 border-[3px] border-black font-black hover:bg-orange-400 mr-4">
+            <button onClick={() => toast({ title: "Download Unavailable", description: "Desktop client is not yet available for download", variant: "default" })} className="bg-orange-500 text-black px-8 py-3 border-[3px] border-black font-black hover:bg-orange-400 mr-4">
               <Download className="inline h-5 w-5 mr-2" />
               DOWNLOAD CLIENT
             </button>

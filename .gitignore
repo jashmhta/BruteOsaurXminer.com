@@ -1,8 +1,8 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # IDE and editors
 .idea/
 .vscode/
+*.swp
+*.swo
 
 # Dependencies
 node_modules/
@@ -10,32 +10,25 @@ node_modules/
 /.pnp
 .pnp.js
 .yarn/install-state.gz
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
 
 # Testing
 /coverage
-
-# Next.js
-/.next/
-/out/
-next-env.d.ts
-*.tsbuildinfo
+test-results/
+playwright-report/
 
 # Production builds
 /build
 dist/
 dist
 
-# Environment files (comprehensive coverage)
-
-*token.json*
-*credentials.json*
+# Environment files
+.env
+.env.*
+!.env.example
 
 # Logs and debug files
+*.log
+*.log.*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -48,23 +41,42 @@ dump.rdb
 
 # Python
 __pycache__/
-*pyc*
+*.pyc
 venv/
 .venv/
+*.py[cod]
+*$py.class
 
-# Development tools
-chainlit.md
-.chainlit
-.ipynb_checkpoints/
-.ac
+# MongoDB data
+backend/data/
+*.wt
+*.lock
+mongodb.log*
 
-# Deployment
-.vercel
+# Cookies and sessions
+*cookies.txt
+*cookie*.txt
 
-# Data and databases
-agenthub/agents/youtube/db
+# Backup files
+*.backup.*
+*_backup.*
+*.bak
 
-# Archive files and large assets
+# Test scripts
+test_*.sh
+
+# Deployment tracking
+.deployment_pids
+
+# Documentation (temp files)
+*_FIX.md
+*_STATUS.md
+*_REPORT.md
+*_VERIFICATION.md
+*_LOGGING.md
+AGENTS.md
+
+# Archive files
 **/*.zip
 **/*.tar.gz
 **/*.tar
@@ -76,5 +88,5 @@ agenthub/agents/youtube/db
 # Build caches
 .cache/
 
-# Mobile development
-android-sdk/ 
+# Package lock files (using yarn)
+package-lock.json 

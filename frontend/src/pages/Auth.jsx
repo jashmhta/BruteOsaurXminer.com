@@ -134,38 +134,28 @@ export default function Auth() {
     if (!validPw(password)) return toast({ title: "Weak password", description: "Use at least 8 chars with letters and numbers." });
 
     try {
-      // Check if user already exists
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
       Logger.info('Attempting to connect to backend:', BACKEND_URL);
-      Logger.info('Checking if user exists:', username);
+      Logger.info('Registering user:', username);
 
-      const checkResponse = await fetch(`${BACKEND_URL}/check-user`, {
+      const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      });
-
-      const checkData = await checkResponse.json();
-      if (checkData.exists) {
-        return toast({ title: "Username already taken", description: "Please choose a different username." });
-      }
-
-      // Register new user
-      const response = await fetch(`${BACKEND_URL}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, password })
       });
 
       const data = await response.json();
-      if (data.success) {
+      
+      if (response.ok) {
         sessionStorage.setItem("authUsername", username);
         sessionStorage.setItem("auth", "1");
-        sessionStorage.setItem("userId", data.userId);
+        sessionStorage.setItem("userId", data.id);
         toast({ title: "Registration successful", description: "Welcome to Bruteosaur!" });
         navigate("/connect-wallet");
       } else {
-        toast({ title: "Registration failed", description: data.error });
+        const errorMsg = data.detail === "USERNAME_TAKEN" ? "Username already taken" : data.detail || "Registration failed";
+        toast({ title: "Registration failed", description: errorMsg });
       }
     } catch (error) {
       Logger.error('Registration error:', error);
@@ -178,23 +168,25 @@ export default function Auth() {
     if (!validPw(passwordIn)) return toast({ title: "Invalid password" });
 
     try {
-      // Validate credentials against database
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-      const response = await fetch(`${BACKEND_URL}/signin`, {
+      const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username: usernameIn, password: passwordIn })
       });
 
       const data = await response.json();
-      if (data.success) {
+      
+      if (response.ok) {
         sessionStorage.setItem("authUsername", usernameIn);
         sessionStorage.setItem("auth", "1");
-        sessionStorage.setItem("userId", data.userId);
+        sessionStorage.setItem("userId", data.id);
         toast({ title: "Welcome back!", description: "Successfully signed in." });
         navigate("/connect-wallet");
       } else {
-        toast({ title: "Sign in failed", description: data.error });
+        const errorMsg = data.detail === "INVALID_CREDENTIALS" ? "Invalid username or password" : data.detail || "Sign in failed";
+        toast({ title: "Sign in failed", description: errorMsg });
       }
     } catch (error) {
       Logger.error('Sign in error:', error);
