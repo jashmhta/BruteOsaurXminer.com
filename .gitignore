@@ -74,7 +74,10 @@ test_*.sh
 *_REPORT.md
 *_VERIFICATION.md
 *_LOGGING.md
+*_SUMMARY.md
 AGENTS.md
+DEPLOYMENT_STATUS.md
+PRODUCTION_STATUS.md
 
 # Archive files
 **/*.zip
@@ -84,6 +87,12 @@ AGENTS.md
 *.pack
 *.deb
 *.dylib
+
+# Railway/hosting configs (deployment-specific)
+railway-admin.json
+railway.json
+railway.toml
+render.yaml
 
 # Build caches
 .cache/

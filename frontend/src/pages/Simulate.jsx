@@ -9,6 +9,10 @@ const WORDS = [
 const mk = (el, cls = "") => <pre className={`whitespace-pre-wrap text-sm font-mono ${cls}`}>{el}</pre>;
 
 export default function Simulate() {
+  useEffect(() => {
+    document.title = "Mining Simulation - BRUTEOSAUR";
+  }, []);
+
   const [logs, setLogs] = useState([]);
   const [mnems, setMnems] = useState([]);
   const [showWalletFound, setShowWalletFound] = useState(false);

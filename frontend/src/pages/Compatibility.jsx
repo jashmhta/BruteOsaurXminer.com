@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { wallets, hardwareTiers, osSupport, browserSupport, quickSetup } from "../mock";
 import { Monitor, Settings, Download, Wallet, Link as LinkIcon, WalletMinimal, Shield, Lock, LockKeyhole, Ghost, Palette } from "lucide-react";
 import { useToast } from "../hooks/use-toast";
@@ -32,6 +32,10 @@ const colorClasses = (c) => {
 };
 
 export default function Compatibility() {
+  useEffect(() => {
+    document.title = "Compatibility - BRUTEOSAUR";
+  }, []);
+
   const { toast } = useToast();
 
   const runSystemCheck = () => {

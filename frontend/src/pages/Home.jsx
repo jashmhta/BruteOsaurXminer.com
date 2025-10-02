@@ -1,21 +1,40 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { stats, features } from "../mock";
 import { Cpu, Zap, Shield, TrendingUp, Download, ArrowRight } from "lucide-react";
 import Reveal from "../components/Reveal";
 
 const ICONS = { Cpu, Zap, Shield, TrendingUp };
-const HERO_VIDEO = "/assets/hero.mp4"; // moved to local assets
+const HERO_VIDEO = "/assets/hero.mp4";
 
 export default function Home() {
   const navigate = useNavigate();
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    document.title = "BRUTEOSAUR - Cryptocurrency Mining Platform";
+    
+    const video = videoRef.current;
+    if (video) {
+      video.playbackRate = 1;
+      video.play().catch(e => console.error("Video autoplay failed:", e));
+      
+      const handleEnded = () => {
+        video.currentTime = 0;
+        video.play();
+      };
+      
+      video.addEventListener('ended', handleEnded);
+      return () => video.removeEventListener('ended', handleEnded);
+    }
+  }, []);
 
   const FeatureCard = ({ icon, title, description }) => {
     const Icon = ICONS[icon] || Cpu;
     return (
       <div className="bg-black border-4 border-gray-600 p-6 hover:border-orange-500 transition-all duration-300">
         <div className="bg-orange-500 text-black p-3 border-[3px] border-black inline-block mb-4">
-          <Icon className="h-8 w-8" />
+          <Icon className="h-8 w-8" aria-hidden="true" />
         </div>
         <h3 className="text-xl font-black mb-3 text-white">{title}</h3>
         <p className="text-gray-400 font-bold">{description}</p>
@@ -27,10 +46,18 @@ export default function Home() {
     <div className="min-h-screen bg-black text-white">
       <section className="relative min-h-[88vh] flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 z-0">
-          <video autoPlay loop playsInline muted className="w-full h-full object-cover opacity-40">
+          <video 
+            ref={videoRef}
+            autoPlay 
+            loop 
+            playsInline 
+            muted 
+            className="w-full h-full object-cover opacity-80" 
+            preload="auto"
+          >
             <source src={HERO_VIDEO} type="video/mp4" />
           </video>
-          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute inset-0 bg-black/10" />
         </div>
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-6xl md:text-8xl font-black mb-6 tracking-tight">
@@ -44,14 +71,16 @@ export default function Home() {
             <button
               onClick={() => navigate("/simulate")}
               className="bg-orange-500 text-black px-8 py-4 border-4 border-black font-black text-lg hover:bg-orange-400 transform hover:scale-105 transition-colors duration-200"
+              aria-label="Start mining demo"
             >
-              START DEMO <ArrowRight className="inline ml-2 h-5 w-5" />
+              START DEMO <ArrowRight className="inline ml-2 h-5 w-5" aria-hidden="true" />
             </button>
             <button
               onClick={() => navigate("/simulate")}
               className="bg-gray-800 text-white px-8 py-4 border-4 border-gray-600 font-black text-lg hover:bg-gray-700 flex items-center"
+              aria-label="Download Bruteosaur mining software"
             >
-              <Download className="mr-2 h-5 w-5" /> DOWNLOAD NOW
+              <Download className="mr-2 h-5 w-5" aria-hidden="true" /> DOWNLOAD NOW
             </button>
           </div>
         </div>

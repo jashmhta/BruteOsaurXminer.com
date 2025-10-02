@@ -4,7 +4,7 @@ import { cn } from "../lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { Menu } from "lucide-react";
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_bruteosaur-copy/artifacts/2xlf2dip_1758496554596.jpg";
+const LOGO_URL = "/assets/logo.jpg";
 
 const NavLink = ({ to, children, onClick }) => {
   const { pathname } = useLocation();
@@ -41,7 +41,7 @@ export default function Layout({ children }) {
       )}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
-            <img src={LOGO_URL} alt="Bruteosaur" className="w-9 h-9 rounded-sm object-cover"/>
+            <img src={LOGO_URL} alt="Bruteosaur" className="w-10 h-10 rounded object-contain"/>
             <div className="font-black text-2xl tracking-tighter">
               <span className="text-white">BRUTE</span>
               <span className="text-orange-500">OSAUR</span>

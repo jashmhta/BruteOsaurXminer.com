@@ -1,7 +1,11 @@
-import React from "react";
+import React, { useEffect } from "react";
 import Reveal from "../components/Reveal";
 
 export default function Demo() {
+  useEffect(() => {
+    document.title = "Demo - BRUTEOSAUR";
+  }, []);
+
   return (
     <div className="min-h-[70vh] bg-black text-white">
       <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

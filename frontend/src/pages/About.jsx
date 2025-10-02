@@ -1,9 +1,13 @@
-import React from "react";
+import React, { useEffect } from "react";
 import Reveal from "../components/Reveal";
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_bruteosaur-copy/artifacts/2xlf2dip_1758496554596.jpg";
+const LOGO_URL = "/assets/logo.jpg";
 
 export default function About(){
+  useEffect(() => {
+    document.title = "About Us - BRUTEOSAUR";
+  }, []);
+
   const team = [
     { name: "Sarah Chen", role: "CEO & Founder", bio: "Former security researcher at CipherTrace. 10+ years in blockchain forensics and cryptography." },
     { name: "Marcus Rodriguez", role: "CTO", bio: "Ex-Google engineer specializing in distributed systems. Led mining infrastructure teams at major pools." },
@@ -15,7 +19,7 @@ export default function About(){
     <div className="min-h-[80vh] bg-black text-white">
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <Reveal className="flex flex-col md:flex-row items-center gap-8 mb-12">
-          <img src={LOGO_URL} alt="Bruteosaur" className="w-40 h-40 object-cover rounded shadow-lg border-4 border-orange-500"/>
+          <img src={LOGO_URL} alt="Bruteosaur" className="w-40 h-40 object-contain rounded shadow-lg border-4 border-orange-500 p-2 bg-white"/>
           <div>
             <h1 className="text-5xl font-black mb-4">About Bruteosaur</h1>
             <p className="text-gray-300 font-bold text-lg mb-4">

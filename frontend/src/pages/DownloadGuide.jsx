@@ -3,6 +3,10 @@ import { Download, Play, CheckCircle, AlertTriangle, Settings, Terminal, Zap, Sh
 import Logger from "../utils/logger";
 
 export default function DownloadGuide() {
+  useEffect(() => {
+    document.title = "Download Guide - BRUTEOSAUR";
+  }, []);
+
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [installStep, setInstallStep] = useState(0);
   const [systemCheck, setSystemCheck] = useState({ checked: false, compatible: true });

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import Reveal from "../components/Reveal";
 
 const items = [
@@ -53,6 +53,10 @@ const items = [
 ];
 
 export default function Testimonials(){
+  useEffect(() => {
+    document.title = "Testimonials - BRUTEOSAUR";
+  }, []);
+
   return (
     <div className="min-h-[70vh] bg-black text-white">
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

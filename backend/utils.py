@@ -239,7 +239,6 @@ class LogManager:
 
             # Rotate logs if exceeding maximum size
             if len(self.logs) > self.max_entries:
-                # Keep only the most recent entries
                 self.logs = self.logs[-self.max_entries :]
 
     def get_logs(self, limit: int = 100, offset: int = 0) -> list:

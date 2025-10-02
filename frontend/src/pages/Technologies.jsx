@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import Reveal from "../components/Reveal";
 import { Cpu, Shield, Zap, Gauge, Server, Network, Wrench } from "lucide-react";
 
@@ -13,6 +13,10 @@ const tech = [
 ];
 
 export default function Technologies() {
+  useEffect(() => {
+    document.title = "Technologies - BRUTEOSAUR";
+  }, []);
+
   return (
     <div className="min-h-[75vh] bg-black text-white">
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

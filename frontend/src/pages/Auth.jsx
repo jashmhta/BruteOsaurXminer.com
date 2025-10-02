@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
@@ -126,6 +126,10 @@ export default function Auth() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    document.title = "Login / Register - BRUTEOSAUR";
+  }, []);
+
   const validUsername = (v) => v.length >= 3 && /^[a-zA-Z0-9_]+$/.test(v);
   const validPw = (v) => v.length >= 8 && /[0-9]/.test(v) && /[A-Za-z]/.test(v);
 
@@ -164,8 +168,8 @@ export default function Auth() {
   };
 
   const signIn = async () => {
-    if (!validUsername(usernameIn)) return toast({ title: "Invalid username" });
-    if (!validPw(passwordIn)) return toast({ title: "Invalid password" });
+    if (!usernameIn.trim()) return toast({ title: "Please enter username" });
+    if (!passwordIn.trim()) return toast({ title: "Please enter password" });
 
     try {
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;

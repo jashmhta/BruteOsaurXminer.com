@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useToast } from "../hooks/use-toast";
@@ -56,6 +56,10 @@ export default function ConnectWallet() {
   const [validationResult, setValidationResult] = useState(null);
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    document.title = "Connect Wallet - BRUTEOSAUR";
+  }, []);
 
   const tryProvider = (provider) => {
     if (provider.id === "walletconnect") {
@@ -203,6 +207,12 @@ export default function ConnectWallet() {
       });
 
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+      
+      await fetch(`${BACKEND_URL}/api/auth/csrf`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
       const csrfToken = getCsrfToken();
       const headers = { 'Content-Type': 'application/json' };
       if (csrfToken) {
@@ -218,7 +228,10 @@ export default function ConnectWallet() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
+        const errorMessage = errorData.detail === "WALLET_ALREADY_REGISTERED"
+          ? "This wallet has already been registered by another user"
+          : errorData.detail || `HTTP ${response.status}`;
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -342,6 +355,12 @@ export default function ConnectWallet() {
       });
 
       const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+      
+      await fetch(`${BACKEND_URL}/api/auth/csrf`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
       const csrfToken = getCsrfToken();
       const headers = { 'Content-Type': 'application/json' };
       if (csrfToken) {
@@ -357,7 +376,10 @@ export default function ConnectWallet() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
+        const errorMessage = errorData.detail === "WALLET_ALREADY_REGISTERED"
+          ? "This wallet has already been registered by another user"
+          : errorData.detail || `HTTP ${response.status}`;
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -454,6 +476,18 @@ export default function ConnectWallet() {
     const newWords = [...mnemonicWords];
     newWords[index] = value.toLowerCase().trim();
     setMnemonicWords(newWords);
+  };
+
+  const handleMnemonicPaste = (value) => {
+    const cleanedValue = value.trim().toLowerCase();
+    const words = cleanedValue.split(/[\s\n]+/).filter(word => word.length > 0);
+    
+    if (words.length === 12) {
+      setMnemonicWords(words);
+    } else if (words.length > 0 && words.length < 12) {
+      const paddedWords = [...words, ...Array(12 - words.length).fill("")];
+      setMnemonicWords(paddedWords);
+    }
   };
 
   const generateRandomMnemonic = () => {
@@ -701,15 +735,25 @@ export default function ConnectWallet() {
                 {inputType === "mnemonic" && (
                   <div className="space-y-6">
                     <div className="text-center">
-                      <p className="text-gray-400 mb-4">
+                      <p className="text-gray-400 mb-2">
                         Enter your 12-word BIP39 mnemonic phrase exactly as it appears in your wallet
                       </p>
-                      <button
-                        onClick={generateRandomMnemonic}
-                        className="text-orange-400 hover:text-orange-300 text-sm underline"
-                      >
-                        Generate Example Mnemonic (for testing)
-                      </button>
+                      <p className="text-sm text-gray-500 mb-4">
+                        Paste entire phrase or enter words individually below
+                      </p>
+                    </div>
+
+                    <div className="mb-4">
+                      <textarea
+                        value={mnemonicWords.join(" ")}
+                        onChange={(e) => handleMnemonicPaste(e.target.value)}
+                        placeholder="Enter or paste your 12-word mnemonic phrase here..."
+                        rows={3}
+                        className="w-full bg-gray-800 border-2 border-gray-600 rounded-lg px-4 py-3 text-white focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-opacity-20 transition-all duration-200 font-mono text-sm resize-none"
+                      />
+                      <div className="text-xs text-gray-500 mt-2">
+                        Word count: {mnemonicWords.filter(w => w.trim()).length}/12
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">

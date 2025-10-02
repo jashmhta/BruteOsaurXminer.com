@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test')
 test.describe('Authentication Flows', () => {
   test('should register a new user successfully', async ({ page }) => {
     const timestamp = Date.now()
-    const username = `testuser${timestamp}`
+    const username = `e2euser${timestamp}`
     const password = 'TestPass123'
 
     await page.goto('/auth')
@@ -26,7 +26,7 @@ test.describe('Authentication Flows', () => {
 
   test('should login with valid credentials', async ({ page }) => {
     const timestamp = Date.now()
-    const username = `logintest${timestamp}`
+    const username = `e2elogin${timestamp}`
     const password = 'TestPass456'
     
     page.on('console', msg => console.log('PAGE LOG:', msg.text()))

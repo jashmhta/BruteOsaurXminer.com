@@ -11,6 +11,10 @@ const Bar = ({ label, value, color = "bg-green-500" }) => (
 );
 
 export default function Success() {
+  useEffect(() => {
+    document.title = "Success Rate - BRUTEOSAUR";
+  }, []);
+
   const [vals, setVals] = useState({ overall: 0, eth: 0, btc: 0, sol: 0 });
   useEffect(() => {
     const target = { overall: 94.7, eth: 92.1, btc: 96.8, sol: 90.5 };
