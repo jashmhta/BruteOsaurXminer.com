@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: brutosaur-backend-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn server:app --host 0.0.0.0 --port 8001"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: USE_TESTNET
+        value: false
+
+  - type: web
+    name: brutosaur-admin
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && python admin_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        value: mjash028@gmail.com
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+
+  - type: web
+    name: brutosaur-frontend
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: "cd frontend && yarn install && yarn build"
+    staticPublishPath: frontend/build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
+
+databases:
+  - name: brutosaur-mongodb
+    databaseName: miners_production
+    user: brutosaur
+    plan: free
