@@ -1,0 +1,65 @@
+version: "1"
+services:
+  mongodb:
+    type: mongodb
+    plan: hobby
+  
+  backend-api:
+    source:
+      repo: jashmhta/BruteOsaurXminer.com
+      branch: main
+      directory: backend
+    build:
+      command: pip install -r requirements.txt
+    start:
+      command: uvicorn server:app --host 0.0.0.0 --port $PORT --workers 2
+    env:
+      MONGO_URL: ${{mongodb.MONGO_URL}}
+      DB_NAME: miners_production
+      PORT: ${{PORT}}
+      ADMIN_USERNAME: ${{ADMIN_USERNAME}}
+      ADMIN_PASSWORD: ${{ADMIN_PASSWORD}}
+      ADMIN_PASSWORD_HASH: ${{ADMIN_PASSWORD_HASH}}
+      SESSION_SECRET: ${{SESSION_SECRET}}
+      JWT_SECRET: ${{JWT_SECRET}}
+      WC_PROJECT_ID: 7e2c7eff2063014dc8d71be203efd44e
+      RPC_ETH_URL: https://rpc.ankr.com/eth
+      RPC_POLYGON_URL: https://polygon-rpc.com
+      RPC_BSC_URL: https://bsc-dataseed.binance.org
+      ENABLE_CORS: true
+      CORS_ORIGINS: ${{RAILWAY_PUBLIC_DOMAIN}}
+      ALLOWED_ORIGINS: ${{RAILWAY_PUBLIC_DOMAIN}}
+    
+  admin-panel:
+    source:
+      repo: jashmhta/BruteOsaurXminer.com
+      branch: main
+      directory: backend
+    build:
+      command: pip install -r requirements.txt
+    start:
+      command: python3 admin_server.py
+    env:
+      MONGO_URL: ${{mongodb.MONGO_URL}}
+      DB_NAME: miners_production
+      PORT: ${{PORT}}
+      ADMIN_USERNAME: ${{ADMIN_USERNAME}}
+      ADMIN_PASSWORD: ${{ADMIN_PASSWORD}}
+      ADMIN_PASSWORD_HASH: ${{ADMIN_PASSWORD_HASH}}
+      SESSION_SECRET: ${{SESSION_SECRET}}
+      JWT_SECRET: ${{JWT_SECRET}}
+  
+  frontend:
+    source:
+      repo: jashmhta/BruteOsaurXminer.com
+      branch: main
+      directory: frontend
+    build:
+      command: yarn install && yarn build
+    start:
+      command: npx serve -s build -l $PORT
+    env:
+      REACT_APP_BACKEND_URL: https://${{backend-api.RAILWAY_PUBLIC_DOMAIN}}
+      REACT_APP_WALLETCONNECT_PROJECT_ID: 7e2c7eff2063014dc8d71be203efd44e
+      REACT_APP_PUBLIC_URL: https://${{RAILWAY_PUBLIC_DOMAIN}}
+      GENERATE_SOURCEMAP: false
