@@ -64,6 +64,7 @@ mongodb.log*
 
 # Test scripts
 test_*.sh
+test_*.spec.js
 
 # Deployment tracking
 .deployment_pids
