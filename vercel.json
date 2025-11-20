@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "name": "bruteosaur-miner",
+  "buildCommand": "cd frontend && yarn install && yarn build",
+  "outputDirectory": "frontend/build",
+  "framework": null,
+  "installCommand": "cd backend && pip install -r requirements.txt && cd ../frontend && yarn install"
+}
