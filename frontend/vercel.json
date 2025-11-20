@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "name": "bruteosaur-frontend",
+  "buildCommand": "yarn build",
+  "outputDirectory": "build",
+  "framework": "create-react-app",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
