@@ -31,8 +31,24 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ["DB_NAME"]]
+
+# MongoDB connection with retry logic and extended timeouts for DNS resolution
+try:
+    client = AsyncIOMotorClient(
+        mongo_url,
+        serverSelectionTimeoutMS=30000,  # 30 seconds
+        connectTimeoutMS=30000,
+        socketTimeoutMS=30000,
+        retryWrites=True,
+        retryReads=True,
+        maxPoolSize=10,
+        minPoolSize=1
+    )
+    db = client[os.environ["DB_NAME"]]
+    logger.info("MongoDB client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize MongoDB client: {e}")
+    raise
 
 
 @asynccontextmanager
